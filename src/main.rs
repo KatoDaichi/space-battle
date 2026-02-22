@@ -160,10 +160,11 @@ mod game {
     fn player_movement(
         keyboard_input: Res<ButtonInput<KeyCode>>,
         time: Res<Time>,
-        mut query: Query<&mut Transform, With<Player>>,
+        window_query: Query<&Window>,
+        mut query: Query<(&mut Transform, &Sprite), With<Player>>,
     ) {
-        // プレイヤーのtransformを取得
-        let Ok(mut transform) = query.single_mut() else {
+        // プレイヤーのtransformとspriteを取得
+        let Ok((mut transform, sprite)) = query.single_mut() else {
             return;
         };
 
@@ -200,6 +201,19 @@ mod game {
         // を掛けることで、「1秒間に約300ピクセル進む」一定の速度になる
         transform.translation.x += direction.x * PLAYER_SPEED * time.delta_secs();
         transform.translation.y += direction.y * PLAYER_SPEED * time.delta_secs();
+
+        // プレイヤーが画面外に出ないようにクランプ（範囲制限）する
+        // スプライトのcustom_sizeの半分を考慮して端にぴったり止まるようにする
+        if let Ok(window) = window_query.single() {
+            // スプライトの半分のサイズを計算
+            let sprite_half = sprite.custom_size.unwrap_or(Vec2::ZERO) / 2.0;
+            // ウィンドウの半分のサイズを計算
+            let half_w = window.width() / 2.0 - sprite_half.x;
+            let half_h = window.height() / 2.0 - sprite_half.y;
+            // プレイヤーの位置を指定範囲内に制限する
+            transform.translation.x = transform.translation.x.clamp(-half_w, half_w);
+            transform.translation.y = transform.translation.y.clamp(-half_h, half_h);
+        }
     }
 
     /// 弾のマーカーコンポーネント
