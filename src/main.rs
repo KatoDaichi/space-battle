@@ -102,7 +102,10 @@ mod game {
                 OnEnter(GameState::Game),
                 (setup_camera, setup_ui, setup_player),
             );
-            app.add_systems(Update, player_movement.run_if(in_state(GameState::Game)));
+            app.add_systems(
+                Update,
+                (player_movement, shoot_bullet, bullet_movement).run_if(in_state(GameState::Game)),
+            );
         }
     }
 
@@ -197,5 +200,62 @@ mod game {
         // を掛けることで、「1秒間に約300ピクセル進む」一定の速度になる
         transform.translation.x += direction.x * PLAYER_SPEED * time.delta_secs();
         transform.translation.y += direction.y * PLAYER_SPEED * time.delta_secs();
+    }
+
+    /// 弾のマーカーコンポーネント
+    #[derive(Component)]
+    pub struct Bullet;
+
+    /// 弾の移動速度（ピクセル/秒）
+    const BULLET_SPEED: f32 = 600.0;
+
+    /// Enterキーで弾を発射する処理
+    fn shoot_bullet(
+        mut commands: Commands,
+        keyboard_input: Res<ButtonInput<KeyCode>>,
+        query: Query<&Transform, With<Player>>,
+    ) {
+        // Enterキーが押された時だけ発射する
+        if !keyboard_input.just_pressed(KeyCode::Enter) {
+            return;
+        }
+
+        // プレイヤーの位置を取得
+        let Ok(player_transform) = query.single() else {
+            return;
+        };
+
+        // プレイヤーの位置から弾をspawnする
+        commands.spawn((
+            Sprite::from_color(Color::srgb(1.0, 1.0, 0.0), Vec2::new(10.0, 20.0)),
+            Transform::from_translation(player_transform.translation),
+            Bullet,
+            DespawnOnExit(GameState::Game),
+        ));
+    }
+
+    /// 弾を上方向に移動させる処理
+    fn bullet_movement(
+        mut commands: Commands,
+        time: Res<Time>,
+        window_query: Query<&Window>,
+        mut query: Query<(Entity, &mut Transform), With<Bullet>>,
+    ) {
+        // ウィンドウの高さの半分を画面上端のY座標として算出
+        // （Bevyの2D座標はY=0が画面中央のため）
+        let window_half_height = window_query
+            .single()
+            .map(|w| w.height() / 2.0)
+            .unwrap_or(400.0); // ほぼあり得ないが、ウィンドウの高さを取得できない場合は400.0を代入
+
+        for (entity, mut transform) in &mut query {
+            // 弾を上方向に移動
+            transform.translation.y += BULLET_SPEED * time.delta_secs();
+
+            // 画面外（上端）に出たら削除する
+            if transform.translation.y > window_half_height {
+                commands.entity(entity).despawn();
+            }
+        }
     }
 }
