@@ -92,6 +92,7 @@ mod title {
 /// ゲーム画面
 mod game {
     use super::*;
+    use rand::RngExt;
 
     /// ゲームプレイのプラグイン
     pub struct GamePlugin;
@@ -102,9 +103,17 @@ mod game {
                 OnEnter(GameState::Game),
                 (setup_camera, setup_ui, setup_player),
             );
+            app.init_resource::<EnemySpawnTimer>();
             app.add_systems(
                 Update,
-                (player_movement, shoot_bullet, bullet_movement).run_if(in_state(GameState::Game)),
+                (
+                    player_movement,
+                    shoot_bullet,
+                    bullet_movement,
+                    enemy_spawner,
+                    enemy_movement,
+                )
+                    .run_if(in_state(GameState::Game)),
             );
         }
     }
@@ -268,6 +277,85 @@ mod game {
 
             // 画面外（上端）に出たら削除する
             if transform.translation.y > window_half_height {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+
+    /// 敵のマーカーコンポーネント
+    #[derive(Component)]
+    pub struct Enemy;
+
+    /// 敵の移動速度（ピクセル/秒）
+    const ENEMY_SPEED: f32 = 200.0;
+
+    /// 敵のスプライトサイズ（正方形）
+    const ENEMY_SIZE: f32 = 50.0;
+
+    /// 敵のスポーン間隔を管理するタイマーリソース
+    #[derive(Resource)]
+    struct EnemySpawnTimer(Timer);
+
+    impl Default for EnemySpawnTimer {
+        fn default() -> Self {
+            // 2秒ごとに1体スポーンする
+            Self(Timer::from_seconds(2.0, TimerMode::Repeating))
+        }
+    }
+
+    /// 一定間隔でランダムなX座標に敵をspawnする処理
+    fn enemy_spawner(
+        mut commands: Commands,
+        time: Res<Time>,
+        mut timer: ResMut<EnemySpawnTimer>,
+        window_query: Query<&Window>,
+    ) {
+        // タイマーを進めて、まだ発火していなければ何もしない
+        if !timer.0.tick(time.delta()).just_finished() {
+            return;
+        }
+
+        // ウィンドウのサイズを取得（取得できなければ何もしない）
+        let Ok(window) = window_query.single() else {
+            return;
+        };
+
+        // rand クレートを使ってランダムなX座標（画面幅の範囲内）を生成する
+        // ENEMY_SIZEの半分を差し引いて、敵が画面端からはみ出さないようにする
+        let half_w = window.width() / 2.0 - ENEMY_SIZE / 2.0;
+        let random_x = rand::rng().random_range(-half_w..=half_w);
+
+        // 画面上端のY座標を計算（スプライトの分だけ上にオフセット）
+        let spawn_y = window.height() / 2.0 + ENEMY_SIZE / 2.0;
+
+        // 敵をspawnする（赤い四角形）
+        commands.spawn((
+            Sprite::from_color(Color::srgb(1.0, 0.2, 0.2), Vec2::splat(ENEMY_SIZE)),
+            Transform::from_xyz(random_x, spawn_y, 0.0),
+            Enemy,
+            DespawnOnExit(GameState::Game),
+        ));
+    }
+
+    /// 敵を下方向に移動させ、画面外に出たら削除する処理
+    fn enemy_movement(
+        mut commands: Commands,
+        time: Res<Time>,
+        window_query: Query<&Window>,
+        mut query: Query<(Entity, &mut Transform), With<Enemy>>,
+    ) {
+        // 画面下端のY座標を取得
+        let window_half_height = window_query
+            .single()
+            .map(|w| -(w.height() / 2.0))
+            .unwrap_or(-400.0);
+
+        for (entity, mut transform) in &mut query {
+            // 敵を下方向に移動
+            transform.translation.y -= ENEMY_SPEED * time.delta_secs();
+
+            // 画面外（下端）に出たら削除する
+            if transform.translation.y < window_half_height - ENEMY_SIZE / 2.0 {
                 commands.entity(entity).despawn();
             }
         }
