@@ -104,6 +104,7 @@ mod game {
                 (setup_camera, setup_ui, setup_player),
             );
             app.init_resource::<EnemySpawnTimer>();
+            app.init_resource::<Score>();
             app.add_systems(
                 Update,
                 (
@@ -113,6 +114,7 @@ mod game {
                     enemy_spawner,
                     enemy_movement,
                     check_collisions,
+                    update_score_ui,
                 )
                     .run_if(in_state(GameState::Game)),
             );
@@ -123,6 +125,14 @@ mod game {
     fn setup_camera(mut commands: Commands) {
         commands.spawn((Camera2d, DespawnOnExit(GameState::Game)));
     }
+
+    /// スコアのUI用マーカーコンポーネント
+    #[derive(Component)]
+    struct ScoreText;
+
+    /// スコアを保持するリソース
+    #[derive(Resource, Default)]
+    struct Score(u32);
 
     /// ゲーム画面のUIセットアップ
     fn setup_ui(mut commands: Commands) {
@@ -145,8 +155,18 @@ mod game {
                         ..default()
                     },
                     TextColor(Color::WHITE),
+                    ScoreText,
                 ));
             });
+    }
+
+    /// スコアのUI表示を更新するシステム
+    fn update_score_ui(score: Res<Score>, mut query: Query<&mut Text, With<ScoreText>>) {
+        if score.is_changed() {
+            if let Ok(mut text) = query.single_mut() {
+                **text = format!("SCORE: {}", score.0);
+            }
+        }
     }
 
     /// プレイヤーのマーカーコンポーネント
@@ -370,6 +390,7 @@ mod game {
         mut commands: Commands,
         bullet_query: Query<(Entity, &Transform, &Sprite), With<Bullet>>,
         enemy_query: Query<(Entity, &Transform, &Sprite), With<Enemy>>,
+        mut score: ResMut<Score>,
     ) {
         for (bullet_entity, bullet_transform, bullet_sprite) in &bullet_query {
             // 弾のサイズ
@@ -403,6 +424,9 @@ mod game {
                     // 当たったら両者を削除する
                     commands.entity(bullet_entity).despawn();
                     commands.entity(enemy_entity).despawn();
+
+                    // スコアを加算
+                    score.0 += 1;
 
                     // この弾は削除予約されたので、他へは当たらないとして次の弾の処理へ移行
                     break;
