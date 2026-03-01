@@ -6,6 +6,7 @@ fn main() {
         .init_state::<GameState>()
         .add_plugins(title::TitlePlugin)
         .add_plugins(game::GamePlugin)
+        .add_plugins(gameover::GameOverPlugin)
         .run();
 }
 
@@ -16,6 +17,8 @@ enum GameState {
     Title,
     /// ゲーム画面
     Game,
+    /// ゲームオーバー画面
+    GameOver,
 }
 
 /// タイトル画面
@@ -367,6 +370,7 @@ mod game {
         time: Res<Time>,
         window_query: Query<&Window>,
         mut query: Query<(Entity, &mut Transform), With<Enemy>>,
+        mut next_state: ResMut<NextState<GameState>>,
     ) {
         // 画面下端のY座標を取得
         let window_half_height = window_query
@@ -378,9 +382,10 @@ mod game {
             // 敵を下方向に移動
             transform.translation.y -= ENEMY_SPEED * time.delta_secs();
 
-            // 画面外（下端）に出たら削除する
+            // 画面外（下端）に出たら削除し、ゲームオーバーにする
             if transform.translation.y < window_half_height - ENEMY_SIZE.y / 2.0 {
                 commands.entity(entity).despawn();
+                next_state.set(GameState::GameOver);
             }
         }
     }
@@ -433,5 +438,81 @@ mod game {
                 }
             }
         }
+    }
+}
+
+/// ゲームオーバー画面
+mod gameover {
+    use super::*;
+
+    /// ゲームオーバー画面のプラグイン
+    pub struct GameOverPlugin;
+
+    impl Plugin for GameOverPlugin {
+        fn build(&self, app: &mut App) {
+            app.add_systems(OnEnter(GameState::GameOver), (setup_camera, setup_ui));
+            app.add_systems(
+                Update,
+                gameover_update.run_if(in_state(GameState::GameOver)),
+            );
+        }
+    }
+
+    /// ゲームオーバー画面の更新処理（Rキーでリトライ、Enterでタイトル）
+    fn gameover_update(
+        keyboard_input: Res<ButtonInput<KeyCode>>,
+        mut next_state: ResMut<NextState<GameState>>,
+    ) {
+        if keyboard_input.just_pressed(KeyCode::Enter) {
+            next_state.set(GameState::Title);
+        } else if keyboard_input.just_pressed(KeyCode::KeyR) {
+            next_state.set(GameState::Game);
+        }
+    }
+
+    /// カメラのセットアップ
+    fn setup_camera(mut commands: Commands) {
+        commands.spawn((Camera2d, DespawnOnExit(GameState::GameOver)));
+    }
+
+    /// UIのセットアップ
+    fn setup_ui(mut commands: Commands) {
+        commands
+            .spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                DespawnOnExit(GameState::GameOver),
+            ))
+            .with_children(|parent| {
+                // ゲームオーバーテキスト
+                parent.spawn((
+                    Text::new("GAME OVER"),
+                    TextFont {
+                        font_size: 80.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(1.0, 0.2, 0.2)),
+                    Node {
+                        margin: UiRect::bottom(Val::Px(40.0)),
+                        ..default()
+                    },
+                ));
+
+                // 説明テキスト
+                parent.spawn((
+                    Text::new("Press R to Retry\nPress Enter to Title"),
+                    TextFont {
+                        font_size: 40.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+            });
     }
 }
