@@ -112,6 +112,7 @@ mod game {
                     bullet_movement,
                     enemy_spawner,
                     enemy_movement,
+                    check_collisions,
                 )
                     .run_if(in_state(GameState::Game)),
             );
@@ -229,6 +230,9 @@ mod game {
     #[derive(Component)]
     pub struct Bullet;
 
+    /// 弾のサイズ
+    const BULLET_SIZE: Vec2 = Vec2::new(10.0, 20.0);
+
     /// 弾の移動速度（ピクセル/秒）
     const BULLET_SPEED: f32 = 600.0;
 
@@ -250,7 +254,7 @@ mod game {
 
         // プレイヤーの位置から弾をspawnする
         commands.spawn((
-            Sprite::from_color(Color::srgb(1.0, 1.0, 0.0), Vec2::new(10.0, 20.0)),
+            Sprite::from_color(Color::srgb(1.0, 1.0, 0.0), BULLET_SIZE),
             Transform::from_translation(player_transform.translation),
             Bullet,
             DespawnOnExit(GameState::Game),
@@ -290,7 +294,7 @@ mod game {
     const ENEMY_SPEED: f32 = 200.0;
 
     /// 敵のスプライトサイズ（正方形）
-    const ENEMY_SIZE: f32 = 50.0;
+    const ENEMY_SIZE: Vec2 = Vec2::splat(50.0);
 
     /// 敵のスポーン間隔を管理するタイマーリソース
     #[derive(Resource)]
@@ -322,15 +326,15 @@ mod game {
 
         // rand クレートを使ってランダムなX座標（画面幅の範囲内）を生成する
         // ENEMY_SIZEの半分を差し引いて、敵が画面端からはみ出さないようにする
-        let half_w = window.width() / 2.0 - ENEMY_SIZE / 2.0;
+        let half_w = window.width() / 2.0 - ENEMY_SIZE.x / 2.0;
         let random_x = rand::rng().random_range(-half_w..=half_w);
 
         // 画面上端のY座標を計算（スプライトの分だけ上にオフセット）
-        let spawn_y = window.height() / 2.0 + ENEMY_SIZE / 2.0;
+        let spawn_y = window.height() / 2.0 + ENEMY_SIZE.y / 2.0;
 
         // 敵をspawnする（赤い四角形）
         commands.spawn((
-            Sprite::from_color(Color::srgb(1.0, 0.2, 0.2), Vec2::splat(ENEMY_SIZE)),
+            Sprite::from_color(Color::srgb(1.0, 0.2, 0.2), ENEMY_SIZE),
             Transform::from_xyz(random_x, spawn_y, 0.0),
             Enemy,
             DespawnOnExit(GameState::Game),
@@ -355,8 +359,54 @@ mod game {
             transform.translation.y -= ENEMY_SPEED * time.delta_secs();
 
             // 画面外（下端）に出たら削除する
-            if transform.translation.y < window_half_height - ENEMY_SIZE / 2.0 {
+            if transform.translation.y < window_half_height - ENEMY_SIZE.y / 2.0 {
                 commands.entity(entity).despawn();
+            }
+        }
+    }
+
+    /// 弾と敵の当たり判定処理
+    fn check_collisions(
+        mut commands: Commands,
+        bullet_query: Query<(Entity, &Transform, &Sprite), With<Bullet>>,
+        enemy_query: Query<(Entity, &Transform, &Sprite), With<Enemy>>,
+    ) {
+        for (bullet_entity, bullet_transform, bullet_sprite) in &bullet_query {
+            // 弾のサイズ
+            let bullet_size = bullet_sprite.custom_size.unwrap_or(BULLET_SIZE);
+            // 弾の位置
+            let b_pos = bullet_transform.translation;
+
+            for (enemy_entity, enemy_transform, enemy_sprite) in &enemy_query {
+                // 敵のサイズ
+                let enemy_size = enemy_sprite.custom_size.unwrap_or(ENEMY_SIZE);
+                // 敵の位置
+                let e_pos = enemy_transform.translation;
+
+                // 弾の上下左右の座標
+                let b_left = b_pos.x - bullet_size.x / 2.0;
+                let b_right = b_pos.x + bullet_size.x / 2.0;
+                let b_bottom = b_pos.y - bullet_size.y / 2.0;
+                let b_top = b_pos.y + bullet_size.y / 2.0;
+
+                // 敵の上下左右の座標
+                let e_left = e_pos.x - enemy_size.x / 2.0;
+                let e_right = e_pos.x + enemy_size.x / 2.0;
+                let e_bottom = e_pos.y - enemy_size.y / 2.0;
+                let e_top = e_pos.y + enemy_size.y / 2.0;
+
+                // シンプルな矩形（AABB）による当たり判定
+                let collision =
+                    b_left < e_right && b_right > e_left && b_bottom < e_top && b_top > e_bottom;
+
+                if collision {
+                    // 当たったら両者を削除する
+                    commands.entity(bullet_entity).despawn();
+                    commands.entity(enemy_entity).despawn();
+
+                    // この弾は削除予約されたので、他へは当たらないとして次の弾の処理へ移行
+                    break;
+                }
             }
         }
     }
