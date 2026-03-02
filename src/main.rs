@@ -4,10 +4,23 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .init_state::<GameState>()
+        .add_systems(Startup, setup_font)
         .add_plugins(title::TitlePlugin)
         .add_plugins(game::GamePlugin)
         .add_plugins(gameover::GameOverPlugin)
         .run();
+}
+
+/// フォントを保持するリソース
+#[derive(Resource)]
+struct DefaultFont {
+    font: Handle<Font>,
+}
+
+/// フォントのセットアップ
+fn setup_font(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let font_handle: Handle<Font> = asset_server.load("fonts/DotGothic16-Regular.ttf");
+    commands.insert_resource(DefaultFont { font: font_handle });
 }
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
@@ -30,7 +43,10 @@ mod title {
 
     impl Plugin for TitlePlugin {
         fn build(&self, app: &mut App) {
-            app.add_systems(OnEnter(GameState::Title), (setup_camera, setup_ui));
+            app.add_systems(
+                OnEnter(GameState::Title),
+                (setup_camera, (setup_font, setup_ui).chain()),
+            );
             app.add_systems(Update, title_update.run_if(in_state(GameState::Title)));
         }
     }
@@ -51,7 +67,7 @@ mod title {
     }
 
     /// UIのセットアップ
-    fn setup_ui(mut commands: Commands) {
+    fn setup_ui(mut commands: Commands, asset: Res<DefaultFont>) {
         commands
             .spawn((
                 Node {
@@ -69,6 +85,7 @@ mod title {
                 parent.spawn((
                     Text::new("SPACE BATTLE"),
                     TextFont {
+                        font: asset.font.clone(),
                         font_size: 80.0,
                         ..default()
                     },
@@ -83,6 +100,7 @@ mod title {
                 parent.spawn((
                     Text::new("Press Enter to Start"),
                     TextFont {
+                        font: asset.font.clone(),
                         font_size: 40.0,
                         ..default()
                     },
@@ -138,7 +156,7 @@ mod game {
     struct Score(u32);
 
     /// ゲーム画面のUIセットアップ
-    fn setup_ui(mut commands: Commands) {
+    fn setup_ui(mut commands: Commands, asset: Res<DefaultFont>) {
         commands
             .spawn((
                 Node {
@@ -154,6 +172,7 @@ mod game {
                 parent.spawn((
                     Text::new("SCORE: 0"),
                     TextFont {
+                        font: asset.font.clone(),
                         font_size: 30.0,
                         ..default()
                     },
@@ -476,7 +495,7 @@ mod gameover {
     }
 
     /// UIのセットアップ
-    fn setup_ui(mut commands: Commands) {
+    fn setup_ui(mut commands: Commands, asset: Res<DefaultFont>) {
         commands
             .spawn((
                 Node {
@@ -494,6 +513,7 @@ mod gameover {
                 parent.spawn((
                     Text::new("GAME OVER"),
                     TextFont {
+                        font: asset.font.clone(),
                         font_size: 80.0,
                         ..default()
                     },
@@ -508,6 +528,7 @@ mod gameover {
                 parent.spawn((
                     Text::new("Press R to Retry\nPress Enter to Title"),
                     TextFont {
+                        font: asset.font.clone(),
                         font_size: 40.0,
                         ..default()
                     },
