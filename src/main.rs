@@ -1,8 +1,15 @@
-use ::bevy::prelude::*;
+use bevy::prelude::*;
+use bevy::window::WindowResolution;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                resolution: WindowResolution::new(800, 800),
+                ..default()
+            }),
+            ..default()
+        }))
         .init_state::<GameState>()
         .add_systems(Startup, setup_font)
         .add_plugins(title::TitlePlugin)
