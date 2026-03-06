@@ -203,10 +203,16 @@ mod game {
     #[derive(Component)]
     pub struct Player;
 
+    /// HPコンポーネント
+    #[derive(Component)]
+    pub struct HP(u32);
+
     /// プレイヤーの移動速度（ピクセル/秒）
     const PLAYER_SPEED: f32 = 300.0;
     /// プレイヤーのサイズ
     const PLAYER_SIZE: Vec2 = Vec2::new(50.0, 50.0);
+    /// プレイヤーのHP
+    const PLAYER_HP: u32 = 3;
 
     /// プレイヤーのセットアップ
     fn setup_player(mut commands: Commands) {
@@ -214,6 +220,7 @@ mod game {
             Sprite::from_color(Color::srgb(1.0, 1.0, 1.0), PLAYER_SIZE),
             Transform::from_xyz(0.0, -250.0, 0.0),
             Player,
+            HP(PLAYER_HP),
             DespawnOnExit(GameState::Game),
         ));
     }
@@ -422,11 +429,11 @@ mod game {
     /// プレイヤーと敵の当たり判定処理
     fn check_player_enemy_collision(
         mut commands: Commands,
-        player_query: Query<(Entity, &Transform, &Sprite), With<Player>>,
+        mut player_query: Query<(Entity, &Transform, &Sprite, &mut HP), With<Player>>,
         enemy_query: Query<(Entity, &Transform, &Sprite), With<Enemy>>,
         mut next_state: ResMut<NextState<GameState>>,
     ) {
-        for (player_entity, player_transform, player_sprite) in &player_query {
+        for (player_entity, player_transform, player_sprite, mut player_hp) in &mut player_query {
             // プレイヤーのサイズ
             let player_size = player_sprite.custom_size.unwrap_or(PLAYER_SIZE);
             // プレイヤーの位置
@@ -455,10 +462,15 @@ mod game {
                     p_left < e_right && p_right > e_left && p_bottom < e_top && p_top > e_bottom;
 
                 if collision {
-                    // 当たったら両者を削除する
-                    commands.entity(player_entity).despawn();
+                    // 当たったら敵を削除する
                     commands.entity(enemy_entity).despawn();
-                    next_state.set(GameState::GameOver);
+                    // プレイヤーのHPが1以上ならHPを減らす、0ならゲームオーバー
+                    if player_hp.0 > 1 {
+                        player_hp.0 -= 1;
+                    } else {
+                        commands.entity(player_entity).despawn();
+                        next_state.set(GameState::GameOver);
+                    }
                 }
             }
         }
