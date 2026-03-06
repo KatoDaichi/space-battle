@@ -133,6 +133,11 @@ mod game {
             );
             app.init_resource::<EnemySpawnTimer>();
             app.init_resource::<Score>();
+            app.add_sub_state::<PauseState>();
+            app.add_systems(OnEnter(PauseState::Paused), setup_pause_ui);
+            app.add_systems(OnExit(PauseState::Paused), despawn_pause_ui);
+            app.add_systems(Update, pause_update.run_if(in_state(PauseState::Paused)));
+            app.add_systems(Update, toggle_pause.run_if(in_state(PauseState::Running)));
             app.add_systems(
                 Update,
                 (
@@ -145,8 +150,113 @@ mod game {
                     check_bullet_enemy_collisions,
                     update_score_ui,
                 )
-                    .run_if(in_state(GameState::Game)),
+                    .run_if(in_state(PauseState::Running)),
             );
+        }
+    }
+
+    /// ポーズ状態（GameState::Gameのサブステート）
+    #[derive(SubStates, Clone, Copy, Default, Eq, PartialEq, Debug, Hash)]
+    #[source(GameState = GameState::Game)]
+    enum PauseState {
+        #[default]
+        Running,
+        Paused,
+    }
+
+    /// ポーズUI用マーカーコンポーネント
+    #[derive(Component)]
+    struct PauseScreen;
+
+    /// ポーズオーバーレイUIを生成する
+    fn setup_pause_ui(mut commands: Commands, asset: Res<DefaultFont>) {
+        commands
+            .spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    position_type: PositionType::Absolute,
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+                ZIndex(100),
+                PauseScreen,
+            ))
+            .with_children(|parent| {
+                // PAUSED テキスト
+                parent.spawn((
+                    Text::new("PAUSED"),
+                    TextFont {
+                        font: asset.font.clone(),
+                        font_size: 80.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    Node {
+                        margin: UiRect::bottom(Val::Px(40.0)),
+                        ..default()
+                    },
+                ));
+
+                // 操作説明
+                parent.spawn((
+                    Text::new("Escapeで続行"),
+                    TextFont {
+                        font: asset.font.clone(),
+                        font_size: 36.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                    Node {
+                        margin: UiRect::bottom(Val::Px(16.0)),
+                        ..default()
+                    },
+                ));
+
+                parent.spawn((
+                    Text::new("Enterでタイトルへ"),
+                    TextFont {
+                        font: asset.font.clone(),
+                        font_size: 36.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                ));
+            });
+    }
+
+    /// ポーズUIを削除する
+    fn despawn_pause_ui(mut commands: Commands, query: Query<Entity, With<PauseScreen>>) {
+        for entity in &query {
+            commands.entity(entity).despawn();
+        }
+    }
+
+    /// Escapeキーでポーズを開始する（Running中のみ）
+    fn toggle_pause(
+        keyboard: Res<ButtonInput<KeyCode>>,
+        mut next_pause: ResMut<NextState<PauseState>>,
+    ) {
+        if keyboard.just_pressed(KeyCode::Escape) {
+            next_pause.set(PauseState::Paused);
+        }
+    }
+
+    /// ポーズ中の操作処理
+    fn pause_update(
+        keyboard: Res<ButtonInput<KeyCode>>,
+        mut next_pause: ResMut<NextState<PauseState>>,
+        mut next_game: ResMut<NextState<GameState>>,
+    ) {
+        if keyboard.just_pressed(KeyCode::Escape) {
+            // Escapeで続行
+            next_pause.set(PauseState::Running);
+        } else if keyboard.just_pressed(KeyCode::Enter) {
+            // Enterでタイトルへ戻る
+            next_game.set(GameState::Title);
         }
     }
 
