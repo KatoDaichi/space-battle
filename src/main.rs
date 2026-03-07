@@ -142,6 +142,7 @@ mod game {
                 Update,
                 (
                     player_movement,
+                    charge_bullets,
                     shoot_bullet,
                     bullet_movement,
                     enemy_spawner,
@@ -323,6 +324,28 @@ mod game {
     const PLAYER_SIZE: Vec2 = Vec2::new(50.0, 50.0);
     /// プレイヤーのHP
     const PLAYER_HP: u32 = 3;
+    /// 弾の最大ストック数
+    const MAX_BULLET_STOCK: u32 = 3;
+    /// 弾が1発チャージされるまでの秒数
+    const BULLET_CHARGE_SECS: f32 = 1.0;
+
+    /// 弾のストックを管理するコンポーネント
+    #[derive(Component)]
+    struct BulletStock {
+        /// 現在の残弾数
+        current: u32,
+        /// 次のチャージまでの経過時間（秒）
+        charge_timer: f32,
+    }
+
+    impl Default for BulletStock {
+        fn default() -> Self {
+            Self {
+                current: MAX_BULLET_STOCK,
+                charge_timer: 0.0,
+            }
+        }
+    }
 
     /// プレイヤーのセットアップ
     fn setup_player(mut commands: Commands) {
@@ -331,8 +354,32 @@ mod game {
             Transform::from_xyz(0.0, -250.0, 0.0),
             Player,
             HP(PLAYER_HP),
+            BulletStock::default(),
             DespawnOnExit(GameState::Game),
         ));
+    }
+
+    /// 時間経過で弾をチャージするシステム
+    fn charge_bullets(time: Res<Time>, mut query: Query<&mut BulletStock, With<Player>>) {
+        let Ok(mut stock) = query.single_mut() else {
+            return;
+        };
+
+        // すでに最大ストックなら何もしない
+        if stock.current >= MAX_BULLET_STOCK {
+            stock.charge_timer = 0.0;
+            return;
+        }
+
+        // 経過時間を加算
+        stock.charge_timer += time.delta_secs();
+        // チャージ時間を経過した場合
+        if stock.charge_timer >= BULLET_CHARGE_SECS {
+            // 経過時間をリセット
+            stock.charge_timer -= BULLET_CHARGE_SECS;
+            // 弾をチャージ
+            stock.current += 1;
+        }
     }
 
     /// プレイヤーの移動処理
@@ -409,19 +456,26 @@ mod game {
     fn shoot_bullet(
         mut commands: Commands,
         keyboard_input: Res<ButtonInput<KeyCode>>,
-        query: Query<&Transform, With<Player>>,
+        mut query: Query<(&Transform, &mut BulletStock), With<Player>>,
     ) {
         // Enterキーが押された時だけ発射する
         if !keyboard_input.just_pressed(KeyCode::Enter) {
             return;
         }
 
-        // プレイヤーの位置を取得
-        let Ok(player_transform) = query.single() else {
+        // プレイヤーの位置と弾ストックを取得
+        let Ok((player_transform, mut stock)) = query.single_mut() else {
             return;
         };
 
-        // プレイヤーの位置から弾をspawnする
+        // 残弾がなければ発射しない
+        if stock.current == 0 {
+            return;
+        }
+
+        // 残弾を1消費して弾をspawnする
+        stock.current -= 1;
+
         commands.spawn((
             Sprite::from_color(Color::srgb(1.0, 1.0, 0.0), BULLET_SIZE),
             Transform::from_translation(player_transform.translation),
