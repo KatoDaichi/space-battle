@@ -150,6 +150,8 @@ mod game {
                     check_player_enemy_collision,
                     check_bullet_enemy_collisions,
                     update_score_ui,
+                    update_hp_ui,
+                    update_bullet_ui,
                 )
                     .run_if(in_state(PauseState::Running)),
             );
@@ -270,9 +272,22 @@ mod game {
     #[derive(Component)]
     struct ScoreText;
 
+    /// HP アイコン行のマーカーコンポーネント
+    #[derive(Component)]
+    struct HpIcons;
+
+    /// 残弾アイコン行のマーカーコンポーネント
+    #[derive(Component)]
+    struct BulletIcons;
+
     /// スコアを保持するリソース
     #[derive(Resource, Default)]
     struct Score(u32);
+
+    /// アイコンのサイズ
+    const ICON_SIZE: f32 = 20.0;
+    /// アイコン間のマージン
+    const ICON_MARGIN: f32 = 4.0;
 
     /// ゲーム画面のUIセットアップ
     fn setup_ui(mut commands: Commands, asset: Res<DefaultFont>) {
@@ -282,12 +297,14 @@ mod game {
                     width: Val::Percent(100.0),
                     height: Val::Percent(100.0),
                     padding: UiRect::all(Val::Px(20.0)),
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::FlexStart,
                     ..default()
                 },
                 DespawnOnExit(GameState::Game),
             ))
             .with_children(|parent| {
-                // スコア表示等
+                // スコア表示
                 parent.spawn((
                     Text::new("SCORE: 0"),
                     TextFont {
@@ -296,7 +313,32 @@ mod game {
                         ..default()
                     },
                     TextColor(Color::WHITE),
+                    Node {
+                        margin: UiRect::bottom(Val::Px(6.0)),
+                        ..default()
+                    },
                     ScoreText,
+                ));
+
+                // HP アイコン行
+                parent.spawn((
+                    Node {
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
+                        margin: UiRect::bottom(Val::Px(4.0)),
+                        ..default()
+                    },
+                    HpIcons,
+                ));
+
+                // 残弾アイコン行
+                parent.spawn((
+                    Node {
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BulletIcons,
                 ));
             });
     }
@@ -308,6 +350,68 @@ mod game {
                 **text = format!("SCORE: {}", score.0);
             }
         }
+    }
+
+    /// HP アイコンを再描画するシステム
+    fn update_hp_ui(
+        mut commands: Commands,
+        player_query: Query<&HP, (With<Player>, Changed<HP>)>,
+        icons_query: Query<Entity, With<HpIcons>>,
+    ) {
+        let Ok(hp) = player_query.single() else {
+            return;
+        };
+        let Ok(container) = icons_query.single() else {
+            return;
+        };
+
+        // 既存の子エンティティをすべて削除して再描画
+        commands.entity(container).despawn_related::<Children>();
+
+        commands.entity(container).with_children(|parent| {
+            for _ in 0..hp.0 {
+                parent.spawn((
+                    Node {
+                        width: Val::Px(ICON_SIZE),
+                        height: Val::Px(ICON_SIZE),
+                        margin: UiRect::right(Val::Px(ICON_MARGIN)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::WHITE),
+                ));
+            }
+        });
+    }
+
+    /// 残弾アイコンを再描画するシステム
+    fn update_bullet_ui(
+        mut commands: Commands,
+        player_query: Query<&BulletStock, (With<Player>, Changed<BulletStock>)>,
+        icons_query: Query<Entity, With<BulletIcons>>,
+    ) {
+        let Ok(stock) = player_query.single() else {
+            return;
+        };
+        let Ok(container) = icons_query.single() else {
+            return;
+        };
+
+        // 既存の子エンティティをすべて削除して再描画
+        commands.entity(container).despawn_related::<Children>();
+
+        commands.entity(container).with_children(|parent| {
+            for _ in 0..stock.current {
+                parent.spawn((
+                    Node {
+                        width: Val::Px(ICON_SIZE * 0.6),
+                        height: Val::Px(ICON_SIZE),
+                        margin: UiRect::right(Val::Px(ICON_MARGIN)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(1.0, 0.85, 0.0)),
+                ));
+            }
+        });
     }
 
     /// プレイヤーのマーカーコンポーネント
@@ -350,7 +454,7 @@ mod game {
     /// プレイヤーのセットアップ
     fn setup_player(mut commands: Commands) {
         commands.spawn((
-            Sprite::from_color(Color::srgb(1.0, 1.0, 1.0), PLAYER_SIZE),
+            Sprite::from_color(Color::WHITE, PLAYER_SIZE),
             Transform::from_xyz(0.0, -250.0, 0.0),
             Player,
             HP(PLAYER_HP),
