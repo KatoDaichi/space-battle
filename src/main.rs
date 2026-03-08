@@ -622,8 +622,14 @@ mod game {
     /// 敵の移動速度（ピクセル/秒）
     const ENEMY_SPEED: f32 = 200.0;
 
-    /// 敵のスプライトサイズ（正方形）
-    const ENEMY_SIZE: Vec2 = Vec2::splat(50.0);
+    /// 敵のスプライトサイズの初期値（正方形）
+    const ENEMY_SIZE_INITIAL: Vec2 = Vec2::splat(50.0);
+    /// 敵のスプライトサイズの最小値
+    const ENEMY_SIZE_MIN: f32 = 25.0;
+    /// 何秒ごとにサイズを縮小するか
+    const ENEMY_SIZE_STEP_SECS: f32 = 20.0;
+    /// 1ステップあたりの縮小量
+    const ENEMY_SIZE_STEP_AMOUNT: f32 = 5.0;
 
     /// 敵のスポーン間隔を管理するタイマーリソース
     #[derive(Resource)]
@@ -683,26 +689,32 @@ mod game {
             return;
         };
 
+        // 経過時間に応じて敵のサイズを計算する
+        let size_steps = (game_elapsed_time.0 / ENEMY_SIZE_STEP_SECS).floor();
+        let enemy_side =
+            (ENEMY_SIZE_INITIAL.x - size_steps * ENEMY_SIZE_STEP_AMOUNT).max(ENEMY_SIZE_MIN);
+        let enemy_size = Vec2::splat(enemy_side);
+
         // rand クレートを使ってランダムなX座標（画面幅の範囲内）を生成する
-        // ENEMY_SIZEの半分を差し引いて、敵が画面端からはみ出さないようにする
-        let half_w = window.width() / 2.0 - ENEMY_SIZE.x / 2.0;
+        // enemy_sizeの半分を差し引いて、敵が画面端からはみ出さないようにする
+        let half_w = window.width() / 2.0 - enemy_size.x / 2.0;
         let random_x = rand::rng().random_range(-half_w..=half_w);
 
         // 画面上端のY座標を計算（スプライトの分だけ上にオフセット）
-        let spawn_y = window.height() / 2.0 + ENEMY_SIZE.y / 2.0;
+        let spawn_y = window.height() / 2.0 + enemy_size.y / 2.0;
 
         // 敵をspawnする（赤い四角形）
         commands.spawn((
-            Sprite::from_color(Color::srgb(1.0, 0.2, 0.2), ENEMY_SIZE),
+            Sprite::from_color(Color::srgb(1.0, 0.2, 0.2), enemy_size),
             Transform::from_xyz(random_x, spawn_y, 0.0),
             Enemy,
             DespawnOnExit(GameState::Game),
         ));
 
         // ゲーム内経過時間に応じて敵スポーンタイマーの間隔を更新する
-        let steps = (game_elapsed_time.0 / SPAWN_INTERVAL_STEP_SECS).floor();
-        let new_interval =
-            (SPAWN_INTERVAL_INITIAL - steps * SPAWN_INTERVAL_STEP_AMOUNT).max(SPAWN_INTERVAL_MIN);
+        let interval_steps = (game_elapsed_time.0 / SPAWN_INTERVAL_STEP_SECS).floor();
+        let new_interval = (SPAWN_INTERVAL_INITIAL - interval_steps * SPAWN_INTERVAL_STEP_AMOUNT)
+            .max(SPAWN_INTERVAL_MIN);
         enemy_spawn_timer
             .0
             .set_duration(std::time::Duration::from_secs_f32(new_interval));
@@ -727,7 +739,7 @@ mod game {
             transform.translation.y -= ENEMY_SPEED * time.delta_secs();
 
             // 画面外（下端）に出たら削除し、ゲームオーバーにする
-            if transform.translation.y < window_half_height - ENEMY_SIZE.y / 2.0 {
+            if transform.translation.y < window_half_height - ENEMY_SIZE_INITIAL.y / 2.0 {
                 commands.entity(entity).despawn();
                 next_state.set(GameState::GameOver);
             }
@@ -755,7 +767,7 @@ mod game {
 
             for (enemy_entity, enemy_transform, enemy_sprite) in &enemy_query {
                 // 敵のサイズ
-                let enemy_size = enemy_sprite.custom_size.unwrap_or(ENEMY_SIZE);
+                let enemy_size = enemy_sprite.custom_size.unwrap_or(ENEMY_SIZE_INITIAL);
                 // 敵の位置
                 let e_pos = enemy_transform.translation;
 
@@ -799,7 +811,7 @@ mod game {
 
             for (enemy_entity, enemy_transform, enemy_sprite) in &enemy_query {
                 // 敵のサイズ
-                let enemy_size = enemy_sprite.custom_size.unwrap_or(ENEMY_SIZE);
+                let enemy_size = enemy_sprite.custom_size.unwrap_or(ENEMY_SIZE_INITIAL);
                 // 敵の位置
                 let e_pos = enemy_transform.translation;
 
