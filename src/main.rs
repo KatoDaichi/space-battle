@@ -129,10 +129,11 @@ mod game {
         fn build(&self, app: &mut App) {
             app.add_systems(
                 OnEnter(GameState::Game),
-                (setup_camera, setup_ui, setup_player),
+                (setup_camera, setup_ui, setup_player, reset_game_elapsed),
             );
             app.init_resource::<EnemySpawnTimer>();
             app.init_resource::<Score>();
+            app.init_resource::<GameElapsedTime>();
             app.add_sub_state::<PauseState>();
             app.add_systems(OnEnter(PauseState::Paused), setup_pause_ui);
             app.add_systems(OnExit(PauseState::Paused), despawn_pause_ui);
@@ -141,6 +142,7 @@ mod game {
             app.add_systems(
                 Update,
                 (
+                    tick_game_elapsed,
                     player_movement,
                     charge_bullets,
                     shoot_bullet,
@@ -634,15 +636,45 @@ mod game {
         }
     }
 
+    /// スポーン間隔の初期値（秒）
+    const SPAWN_INTERVAL_INITIAL: f32 = 2.0;
+    /// スポーン間隔の最小値（秒）
+    const SPAWN_INTERVAL_MIN: f32 = 1.0;
+    /// 何秒ごとに間隔を短縮するか
+    const SPAWN_INTERVAL_STEP_SECS: f32 = 10.0;
+    /// 1ステップあたりの短縮量（秒）
+    const SPAWN_INTERVAL_STEP_AMOUNT: f32 = 0.1;
+
+    /// ゲーム開始からの経過時間（秒）を管理するリソース
+    #[derive(Resource, Default)]
+    struct GameElapsedTime(f32);
+
+    /// 毎フレーム経過時間を加算するシステム
+    fn tick_game_elapsed(time: Res<Time>, mut game_elapsed_time: ResMut<GameElapsedTime>) {
+        game_elapsed_time.0 += time.delta_secs();
+    }
+
+    /// ゲーム開始時に経過時間をリセットするシステム
+    fn reset_game_elapsed(
+        mut game_elapsed_time: ResMut<GameElapsedTime>,
+        mut enemy_spawn_timer: ResMut<EnemySpawnTimer>,
+    ) {
+        // ゲーム内経過時間を0.0秒にリセット
+        game_elapsed_time.0 = 0.0;
+        // 敵のスポーン間隔タイマーも初期間隔に戻す
+        enemy_spawn_timer.0 = Timer::from_seconds(SPAWN_INTERVAL_INITIAL, TimerMode::Repeating);
+    }
+
     /// 一定間隔でランダムなX座標に敵をspawnする処理
     fn enemy_spawner(
         mut commands: Commands,
         time: Res<Time>,
-        mut timer: ResMut<EnemySpawnTimer>,
+        mut enemy_spawn_timer: ResMut<EnemySpawnTimer>,
+        game_elapsed_time: Res<GameElapsedTime>,
         window_query: Query<&Window>,
     ) {
-        // タイマーを進めて、まだ発火していなければ何もしない
-        if !timer.0.tick(time.delta()).just_finished() {
+        // 敵のスポーン間隔タイマーを進めて、まだ発火していなければ何もしない
+        if !enemy_spawn_timer.0.tick(time.delta()).just_finished() {
             return;
         }
 
@@ -666,6 +698,14 @@ mod game {
             Enemy,
             DespawnOnExit(GameState::Game),
         ));
+
+        // ゲーム内経過時間に応じて敵スポーンタイマーの間隔を更新する
+        let steps = (game_elapsed_time.0 / SPAWN_INTERVAL_STEP_SECS).floor();
+        let new_interval =
+            (SPAWN_INTERVAL_INITIAL - steps * SPAWN_INTERVAL_STEP_AMOUNT).max(SPAWN_INTERVAL_MIN);
+        enemy_spawn_timer
+            .0
+            .set_duration(std::time::Duration::from_secs_f32(new_interval));
     }
 
     /// 敵を下方向に移動させ、画面外に出たら削除する処理
