@@ -15,6 +15,7 @@ fn main() {
         .add_plugins(title::TitlePlugin)
         .add_plugins(game::GamePlugin)
         .add_plugins(gameover::GameOverPlugin)
+        .add_plugins(gameclear::GameClearPlugin)
         .run();
 }
 
@@ -39,6 +40,8 @@ enum GameState {
     Game,
     /// ゲームオーバー画面
     GameOver,
+    /// ゲームクリア画面
+    GameClear,
 }
 
 /// タイトル画面
@@ -132,7 +135,7 @@ mod game {
                 (setup_camera, setup_ui, setup_player, reset_game_elapsed),
             );
             app.init_resource::<EnemySpawnTimer>();
-            app.init_resource::<Score>();
+            app.init_resource::<EnemyCount>();
             app.init_resource::<GameElapsedTime>();
             app.add_sub_state::<PauseState>();
             app.add_systems(OnEnter(PauseState::Paused), setup_pause_ui);
@@ -151,7 +154,7 @@ mod game {
                     enemy_movement,
                     check_player_enemy_collision,
                     check_bullet_enemy_collisions,
-                    update_score_ui,
+                    update_enemy_count_ui,
                     update_hp_ui,
                     update_bullet_ui,
                 )
@@ -282,9 +285,17 @@ mod game {
     #[derive(Component)]
     struct BulletIcons;
 
-    /// スコアを保持するリソース
-    #[derive(Resource, Default)]
-    struct Score(u32);
+    /// 残り討伐数を保持するリソース（100体からカウントダウン）
+    const ENEMY_TOTAL: u32 = 100;
+
+    #[derive(Resource)]
+    struct EnemyCount(u32);
+
+    impl Default for EnemyCount {
+        fn default() -> Self {
+            Self(ENEMY_TOTAL)
+        }
+    }
 
     /// アイコンのサイズ
     const ICON_SIZE: f32 = 20.0;
@@ -306,9 +317,9 @@ mod game {
                 DespawnOnExit(GameState::Game),
             ))
             .with_children(|parent| {
-                // スコア表示
+                // 残り敵数表示
                 parent.spawn((
-                    Text::new("SCORE: 0"),
+                    Text::new(format!("ENEMY: {}", ENEMY_TOTAL)),
                     TextFont {
                         font: asset.font.clone(),
                         font_size: 30.0,
@@ -345,11 +356,14 @@ mod game {
             });
     }
 
-    /// スコアのUI表示を更新するシステム
-    fn update_score_ui(score: Res<Score>, mut query: Query<&mut Text, With<ScoreText>>) {
-        if score.is_changed() {
+    /// 残り敵数のUI表示を更新するシステム
+    fn update_enemy_count_ui(
+        enemy_count: Res<EnemyCount>,
+        mut query: Query<&mut Text, With<ScoreText>>,
+    ) {
+        if enemy_count.is_changed() {
             if let Ok(mut text) = query.single_mut() {
-                **text = format!("SCORE: {}", score.0);
+                **text = format!("ENEMY: {}", enemy_count.0);
             }
         }
     }
@@ -660,15 +674,18 @@ mod game {
         game_elapsed_time.0 += time.delta_secs();
     }
 
-    /// ゲーム開始時に経過時間をリセットするシステム
+    /// ゲーム開始時に経過時間・残り敵数をリセットするシステム
     fn reset_game_elapsed(
         mut game_elapsed_time: ResMut<GameElapsedTime>,
         mut enemy_spawn_timer: ResMut<EnemySpawnTimer>,
+        mut enemy_count: ResMut<EnemyCount>,
     ) {
         // ゲーム内経過時間を0.0秒にリセット
         game_elapsed_time.0 = 0.0;
         // 敵のスポーン間隔タイマーも初期間隔に戻す
         enemy_spawn_timer.0 = Timer::from_seconds(SPAWN_INTERVAL_INITIAL, TimerMode::Repeating);
+        // 残り敵数を初期値に戻す
+        enemy_count.0 = ENEMY_TOTAL;
     }
 
     /// 一定間隔でランダムなX座標に敵をspawnする処理
@@ -720,12 +737,13 @@ mod game {
             .set_duration(std::time::Duration::from_secs_f32(new_interval));
     }
 
-    /// 敵を下方向に移動させ、画面外に出たら削除する処理
+    /// 敵を下方向に移動させ、画面外に出たらHPを減らす処理
     fn enemy_movement(
         mut commands: Commands,
         time: Res<Time>,
         window_query: Query<&Window>,
         mut query: Query<(Entity, &mut Transform), With<Enemy>>,
+        mut player_query: Query<(Entity, &mut HP), With<Player>>,
         mut next_state: ResMut<NextState<GameState>>,
     ) {
         // 画面下端のY座標を取得
@@ -738,10 +756,20 @@ mod game {
             // 敵を下方向に移動
             transform.translation.y -= ENEMY_SPEED * time.delta_secs();
 
-            // 画面外（下端）に出たら削除し、ゲームオーバーにする
+            // 画面外（下端）に出たら削除し、プレイヤーのHPを1減らす
             if transform.translation.y < window_half_height - ENEMY_SIZE_INITIAL.y / 2.0 {
                 commands.entity(entity).despawn();
-                next_state.set(GameState::GameOver);
+
+                if let Ok((player_entity, mut hp)) = player_query.single_mut() {
+                    if hp.0 > 1 {
+                        // HPが残っていれば1減らす
+                        hp.0 -= 1;
+                    } else {
+                        // HPが0になったらゲームオーバー
+                        commands.entity(player_entity).despawn();
+                        next_state.set(GameState::GameOver);
+                    }
+                }
             }
         }
     }
@@ -801,7 +829,8 @@ mod game {
         mut commands: Commands,
         bullet_query: Query<(Entity, &Transform, &Sprite), With<Bullet>>,
         enemy_query: Query<(Entity, &Transform, &Sprite), With<Enemy>>,
-        mut score: ResMut<Score>,
+        mut enemy_count: ResMut<EnemyCount>,
+        mut next_state: ResMut<NextState<GameState>>,
     ) {
         for (bullet_entity, bullet_transform, bullet_sprite) in &bullet_query {
             // 弾のサイズ
@@ -836,8 +865,15 @@ mod game {
                     commands.entity(bullet_entity).despawn();
                     commands.entity(enemy_entity).despawn();
 
-                    // スコアを加算
-                    score.0 += 1;
+                    // 残り敵数を1減らす
+                    if enemy_count.0 > 0 {
+                        enemy_count.0 -= 1;
+                    }
+
+                    // 残り敵数が0になったらゲームクリア
+                    if enemy_count.0 == 0 {
+                        next_state.set(GameState::GameClear);
+                    }
 
                     // この弾は削除予約されたので、他へは当たらないとして次の弾の処理へ移行
                     break;
@@ -905,6 +941,84 @@ mod gameover {
                         ..default()
                     },
                     TextColor(Color::srgb(1.0, 0.2, 0.2)),
+                    Node {
+                        margin: UiRect::bottom(Val::Px(40.0)),
+                        ..default()
+                    },
+                ));
+
+                // 説明テキスト
+                parent.spawn((
+                    Text::new("Press R to Retry\nPress Enter to Title"),
+                    TextFont {
+                        font: asset.font.clone(),
+                        font_size: 40.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+            });
+    }
+}
+
+/// ゲームクリア画面
+mod gameclear {
+    use super::*;
+
+    /// ゲームクリア画面のプラグイン
+    pub struct GameClearPlugin;
+
+    impl Plugin for GameClearPlugin {
+        fn build(&self, app: &mut App) {
+            app.add_systems(OnEnter(GameState::GameClear), (setup_camera, setup_ui));
+            app.add_systems(
+                Update,
+                gameclear_update.run_if(in_state(GameState::GameClear)),
+            );
+        }
+    }
+
+    /// ゲームクリア画面の更新処理（Rキーでリトライ、Enterでタイトル）
+    fn gameclear_update(
+        keyboard_input: Res<ButtonInput<KeyCode>>,
+        mut next_state: ResMut<NextState<GameState>>,
+    ) {
+        if keyboard_input.just_pressed(KeyCode::Enter) {
+            next_state.set(GameState::Title);
+        } else if keyboard_input.just_pressed(KeyCode::KeyR) {
+            next_state.set(GameState::Game);
+        }
+    }
+
+    /// カメラのセットアップ
+    fn setup_camera(mut commands: Commands) {
+        commands.spawn((Camera2d, DespawnOnExit(GameState::GameClear)));
+    }
+
+    /// UIのセットアップ
+    fn setup_ui(mut commands: Commands, asset: Res<DefaultFont>) {
+        commands
+            .spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                DespawnOnExit(GameState::GameClear),
+            ))
+            .with_children(|parent| {
+                // ゲームクリアテキスト
+                parent.spawn((
+                    Text::new("GAME CLEAR!"),
+                    TextFont {
+                        font: asset.font.clone(),
+                        font_size: 80.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.2, 1.0, 0.4)),
                     Node {
                         margin: UiRect::bottom(Val::Px(40.0)),
                         ..default()
