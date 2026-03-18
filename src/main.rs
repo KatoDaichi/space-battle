@@ -439,7 +439,7 @@ mod game {
     pub struct HP(u32);
 
     /// プレイヤーの移動速度（ピクセル/秒）
-    const PLAYER_SPEED: f32 = 300.0;
+    const PLAYER_SPEED: f32 = 350.0;
     /// プレイヤーのサイズ
     const PLAYER_SIZE: Vec2 = Vec2::new(50.0, 50.0);
     /// プレイヤーのHP
